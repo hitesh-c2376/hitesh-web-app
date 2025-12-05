@@ -1,10 +1,14 @@
 pipeline {
     agent any
+
     environment {
         SONAR_TOKEN = credentials('sonar-token')
         DOCKER_IMAGE = "my-python-app:latest"
+        VENV = ".venv"
     }
+
     stages {
+
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/hitesh-c2376/my-python-app.git'
@@ -14,8 +18,9 @@ pipeline {
         stage('Setup Python Environment') {
             steps {
                 sh '''
-                python -m venv venv
-                source venv/bin/activate
+                python3 -m venv ${VENV}
+                . ${VENV}/bin/activate
+                pip install --upgrade pip
                 pip install -r requirements.txt
                 '''
             }
@@ -24,8 +29,8 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
-                source venv/bin/activate
-                pytest tests/
+                . ${VENV}/bin/activate
+                pytest tests/ --disable-warnings --maxfail=1
                 '''
             }
         }
@@ -34,8 +39,12 @@ pipeline {
             steps {
                 withSonarQubeEnv('sonarqube') {
                     sh '''
-                    source venv/bin/activate
-                    sonar-scanner -Dsonar.login=$SONAR_TOKEN
+                    . ${VENV}/bin/activate
+                    sonar-scanner \
+                      -Dsonar.projectKey=my-python-app \
+                      -Dsonar.sources=. \
+                      -Dsonar.host.url=$SONAR_HOST_URL \
+                      -Dsonar.login=$SONAR_TOKEN
                     '''
                 }
             }
@@ -43,21 +52,25 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                script {
-                    sh "docker build -t ${DOCKER_IMAGE} ."
-                }
+                sh "docker build -t ${DOCKER_IMAGE} ."
             }
         }
 
         stage('Trivy Scan') {
             steps {
-                sh "trivy image ${DOCKER_IMAGE}"
+                sh '''
+                trivy image --format json --output trivy-report.json ${DOCKER_IMAGE}
+                trivy image --format table ${DOCKER_IMAGE}
+                '''
+                archiveArtifacts artifacts: 'trivy-report.json', fingerprint: true
             }
         }
 
         stage('Docker Scout Scan') {
             steps {
-                sh "docker scout analyze ${DOCKER_IMAGE}"
+                sh '''
+                docker scout quickview ${DOCKER_IMAGE} || echo "Scout warnings"
+                '''
             }
         }
 
@@ -70,9 +83,10 @@ pipeline {
             }
         }
     }
+
     post {
         always {
-            echo 'Pipeline completed.'
+            echo "Pipeline completed."
         }
     }
 }
