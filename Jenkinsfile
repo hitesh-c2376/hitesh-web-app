@@ -7,7 +7,8 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/hitesh-c2376/my-python-app.git'
+                git branch: 'main', url: 'https://github.com/hitesh-c2376/hitesh-web-app.git
+'
             }
         }
 
